@@ -1,7 +1,12 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <immintrin.h>
 #include <omp.h>
 #include "computepi.h"
+#include <time.h>
+#include <pthread.h>
+
+
 
 double compute_pi_baseline(size_t N)
 {
@@ -117,3 +122,58 @@ double compute_pi_avx_unroll(size_t N)
           tmp4[0] + tmp4[1] + tmp4[2] + tmp4[3];
     return pi * 4.0;
 }
+
+double compute_pi_montecarlo(size_t N)
+{
+    double pi = 0.0;
+    size_t sum = 0;
+    double x = 0, y = 0;
+    unsigned int myseed = 25234 + 17*omp_get_thread_num();
+    #pragma omp parallel for private(x,y,myseed) reduction(+:sum)
+    for(size_t i = 0; i < N; i++) {
+
+        x = (double) rand_r(&myseed) / RAND_MAX;
+        y = (double) rand_r(&myseed) / RAND_MAX;
+        if((x * x + y * y) < 1) {
+            sum++;
+        }
+    }
+    pi = 4 * ((double)sum / N);
+    return pi;
+}
+
+void montecarlo(void *arg)
+{
+
+    THREAD_ARG *ptr = (THREAD_ARG*)arg;
+    ptr->sum = 0;
+    for(size_t i = 0; i < ptr->N; i++) {
+        double x = (double) rand_r(&ptr->myseed) / RAND_MAX;
+        double y = (double) rand_r(&ptr->myseed) / RAND_MAX;
+        if((x * x + y * y) < 1) {
+            ptr->sum++;
+        }
+    }
+}
+
+double compute_pi_montecarlo_pthread(size_t N, int threads)
+{
+    double pi = 0.0;
+    double sum = 0;
+    pthread_t thread[threads];
+    THREAD_ARG args[threads];
+    for(int i = 0; i < threads; i++) {
+        args[i].N = N / threads;
+        args[i].myseed = 25234 + 17*i;
+        pthread_create(&thread[i], NULL, (void*)&montecarlo, (void*)&args[i]);
+        pthread_join(thread[i], NULL);
+    }
+    for(int i = 0; i < threads; i++)
+        sum += args[i].sum;
+    pi = 4 * (sum / N);
+    return pi;
+}
+
+
+
+
